@@ -296,21 +296,28 @@ def consolidate_session_format_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     # Find columns that indicate session formats
     format_cols = [c for c in df.columns if c.lower().startswith('session format')]
+    
     # If the sheet uses the old single column, preserve that too
-    if 'Session Format' in df.columns:
+    if 'Session Format' in df.columns and 'Session Format' not in format_cols:
         # if it's already a combined representation, keep as-is for rows where present
         df['Session Format'] = df['Session Format'].fillna('Not Specified')
+    
     if format_cols:
         def row_formats(r):
             fmts = []
             for c in format_cols:
+                # Skip the main 'Session Format' column if it exists
+                if c == 'Session Format':
+                    continue
+                    
                 val = r.get(c, False)
                 # Accept various truthy values: TRUE, True, 1, 'TRUE', 'true'
                 if isinstance(val, str):
                     v = val.strip().lower()
                     is_true = v in ('true', '1', 'yes', 'y', 't')
                 else:
-                    is_true = bool(val)
+                    is_true = bool(val) and val != 0 and str(val).upper() != 'FALSE'
+                    
                 if is_true:
                     # Extract label after colon if present
                     if ':' in c:
@@ -322,15 +329,23 @@ def consolidate_session_format_columns(df: pd.DataFrame) -> pd.DataFrame:
                     if label:
                         fmts.append(label)
             return fmts if fmts else ['Not Specified']
-        df['Session Format'] = df.apply(lambda r: row_formats(r) if 'Session Format' not in r or r['Session Format'] in [np.nan, '', 'Not Specified'] else (r['Session Format'] if isinstance(r['Session Format'], list) else [s.strip() for s in str(r['Session Format']).split(',') if s.strip()]), axis=1)
+        
+        # Apply the function to get formats for each row
+        df['Session Format'] = df.apply(row_formats, axis=1)
     else:
         # Make sure we normalize the single 'Session Format' column into lists
         if 'Session Format' in df.columns:
-            df['Session Format'] = df['Session Format'].fillna('Not Specified').apply(lambda x: [s.strip() for s in str(x).split(',')] if x not in [np.nan, '', 'Not Specified'] else ['Not Specified'])
+            df['Session Format'] = df['Session Format'].fillna('Not Specified').apply(
+                lambda x: [s.strip() for s in str(x).split(',') if s.strip()] if x not in [np.nan, '', 'Not Specified'] else ['Not Specified']
+            )
         else:
-            df['Session Format'] = [['Not Specified']]*len(df)
+            df['Session Format'] = [['Not Specified']] * len(df)
+    
     # Ensure type consistency: each cell should be list of strings
-    df['Session Format'] = df['Session Format'].apply(lambda x: x if isinstance(x, list) else ([s.strip() for s in str(x).split(',') if s.strip()] or ['Not Specified']))
+    df['Session Format'] = df['Session Format'].apply(
+        lambda x: x if isinstance(x, list) else ([s.strip() for s in str(x).split(',') if s.strip()] or ['Not Specified'])
+    )
+    
     return df
 
 def calculate_learning_hours(df: pd.DataFrame):
@@ -346,28 +361,52 @@ def calculate_learning_hours(df: pd.DataFrame):
         try:
             # Parse Number of Attendees
             attendees_str = str(row.get('Number of Attendees', '0')).strip()
-            if ',' in attendees_str:
+            if attendees_str in ['', 'nan', 'None']:
+                avg_attendees = 0
+            elif ',' in attendees_str:
                 # Handle multiple values (take average)
-                attendees_list = [float(x.strip()) for x in attendees_str.split(',') if x.strip()]
+                attendees_list = []
+                for x in attendees_str.split(','):
+                    x = x.strip()
+                    if x and x != 'nan':
+                        try:
+                            attendees_list.append(float(x))
+                        except ValueError:
+                            continue
                 avg_attendees = sum(attendees_list) / len(attendees_list) if attendees_list else 0
             else:
-                avg_attendees = float(attendees_str) if attendees_str and attendees_str != 'nan' else 0
+                try:
+                    avg_attendees = float(attendees_str)
+                except ValueError:
+                    avg_attendees = 0
             
             # Parse Time Devoted
             time_str = str(row.get('Time devoted', '0')).strip()
-            if ',' in time_str:
+            if time_str in ['', 'nan', 'None']:
+                avg_time = 0
+            elif ',' in time_str:
                 # Handle multiple values (take average)
-                time_list = [float(x.strip()) for x in time_str.split(',') if x.strip()]
+                time_list = []
+                for x in time_str.split(','):
+                    x = x.strip()
+                    if x and x != 'nan':
+                        try:
+                            time_list.append(float(x))
+                        except ValueError:
+                            continue
                 avg_time = sum(time_list) / len(time_list) if time_list else 0
             else:
-                avg_time = float(time_str) if time_str and time_str != 'nan' else 0
+                try:
+                    avg_time = float(time_str)
+                except ValueError:
+                    avg_time = 0
             
             # Calculate learning hours
             learning_hours = avg_attendees * avg_time
             df.at[idx, 'Learning Hours'] = learning_hours
             df.at[idx, 'Learning Hours Per Session'] = learning_hours
             
-        except (ValueError, TypeError):
+        except (ValueError, TypeError) as e:
             df.at[idx, 'Learning Hours'] = 0
             df.at[idx, 'Learning Hours Per Session'] = 0
     
@@ -475,11 +514,18 @@ def calculate_engagement_metrics(df: pd.DataFrame, today: date):
 # Enhanced Report Generation with Charts
 # ---------------------------------------------------------
 def create_chart_images(filtered_df, session_metrics, learning_metrics, engagement_metrics):
-    """Create chart images for the reports"""
+    """Create chart images for the reports using matplotlib (no Chrome required)"""
     images = {}
     
-    # Create temp directory for images
-    with tempfile.TemporaryDirectory() as tmpdir:
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.patches as mpatches
+        from io import BytesIO
+        
+        # Set matplotlib style
+        plt.style.use('seaborn-v0_8')
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+        
         # Session Format Distribution Pie Chart
         exploded_formats = filtered_df.explode('Session Format')['Session Format'].replace('', 'Not Specified')
         exploded_formats = exploded_formats[exploded_formats != 'Not Specified']
@@ -487,67 +533,141 @@ def create_chart_images(filtered_df, session_metrics, learning_metrics, engageme
             format_counts = exploded_formats.value_counts()
             
             # Pie Chart
-            fig_pie = px.pie(values=format_counts.values, names=format_counts.index, 
-                            title="Session Format Distribution", 
-                            color_discrete_sequence=TECHNO_COLORS['cyber'])
-            fig_pie.update_layout(template="plotly_white", paper_bgcolor='white', 
-                                font=dict(color='black'), height=400)
-            images['session_formats_pie'] = pio.to_image(fig_pie, format='png', width=600, height=400)
+            fig, ax = plt.subplots(figsize=(8, 6))
+            wedges, texts, autotexts = ax.pie(format_counts.values, labels=format_counts.index, 
+                                            autopct='%1.1f%%', colors=colors)
+            ax.set_title('Session Format Distribution', fontsize=14, fontweight='bold')
+            plt.tight_layout()
+            
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            images['session_formats_pie'] = buf.read()
+            buf.close()
+            plt.close()
             
             # Bar Chart
-            fig_bar = px.bar(x=format_counts.values, y=format_counts.index, orientation='h',
-                            title="Session Format Frequency",
-                            color=format_counts.values, color_continuous_scale='Viridis',
-                            labels={'x': 'Count', 'y': 'Session Format'})
-            fig_bar.update_layout(template="plotly_white", paper_bgcolor='white', 
-                                font=dict(color='black'), height=400, showlegend=False)
-            images['session_formats_bar'] = pio.to_image(fig_bar, format='png', width=600, height=400)
+            fig, ax = plt.subplots(figsize=(8, 6))
+            bars = ax.barh(format_counts.index, format_counts.values, color=colors[:len(format_counts)])
+            ax.set_xlabel('Count')
+            ax.set_ylabel('Session Format')
+            ax.set_title('Session Format Frequency', fontsize=14, fontweight='bold')
+            
+            # Add value labels on bars
+            for i, bar in enumerate(bars):
+                width = bar.get_width()
+                ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
+                       f'{int(width)}', ha='left', va='center')
+            
+            plt.tight_layout()
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            images['session_formats_bar'] = buf.read()
+            buf.close()
+            plt.close()
         
         # Learning Hours by Alumni Bar Chart
         if not learning_metrics['learning_by_alumni'].empty:
             top_alumni = learning_metrics['learning_by_alumni'].head(10)
-            fig = px.bar(top_alumni, x='Learning Hours', y='Name', orientation='h',
-                        title="Top 10 Alumni by Learning Hours", 
-                        color='Learning Hours', color_continuous_scale='Viridis')
-            fig.update_layout(template="plotly_white", paper_bgcolor='white', 
-                            font=dict(color='black'), height=400, showlegend=False)
-            images['learning_alumni'] = pio.to_image(fig, format='png', width=600, height=400)
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            bars = ax.barh(top_alumni['Name'], top_alumni['Learning Hours'], 
+                          color=plt.cm.viridis(top_alumni['Learning Hours'] / top_alumni['Learning Hours'].max()))
+            ax.set_xlabel('Learning Hours')
+            ax.set_ylabel('Alumni')
+            ax.set_title('Top 10 Alumni by Learning Hours', fontsize=14, fontweight='bold')
+            
+            # Add value labels
+            for i, bar in enumerate(bars):
+                width = bar.get_width()
+                ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
+                       f'{width:.1f}', ha='left', va='center')
+            
+            plt.tight_layout()
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            images['learning_alumni'] = buf.read()
+            buf.close()
+            plt.close()
         
         # Department Distribution
         dept_counts = filtered_df['Department'].value_counts()
         if not dept_counts.empty:
             # Department Bar Chart
-            fig_bar = px.bar(x=dept_counts.values, y=dept_counts.index, orientation='h',
-                            title="Department Distribution",
-                            color=dept_counts.values, color_continuous_scale='Blues')
-            fig_bar.update_layout(template="plotly_white", paper_bgcolor='white', 
-                                font=dict(color='black'), height=400, showlegend=False)
-            images['departments_bar'] = pio.to_image(fig_bar, format='png', width=600, height=400)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            bars = ax.barh(dept_counts.index, dept_counts.values, 
+                          color=plt.cm.Blues(dept_counts.values / dept_counts.values.max()))
+            ax.set_xlabel('Count')
+            ax.set_ylabel('Department')
+            ax.set_title('Department Distribution', fontsize=14, fontweight='bold')
             
-            # Department Pie Chart
-            fig_pie = px.pie(values=dept_counts.values, names=dept_counts.index,
-                            title="Department Distribution")
-            fig_pie.update_layout(template="plotly_white", paper_bgcolor='white', 
-                                font=dict(color='black'), height=400)
-            images['departments_pie'] = pio.to_image(fig_pie, format='png', width=600, height=400)
+            # Add value labels
+            for i, bar in enumerate(bars):
+                width = bar.get_width()
+                ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
+                       f'{int(width)}', ha='left', va='center')
+            
+            plt.tight_layout()
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            images['departments_bar'] = buf.read()
+            buf.close()
+            plt.close()
         
         # Learning by Department
         if not learning_metrics['learning_by_department'].empty:
-            fig = px.bar(learning_metrics['learning_by_department'].head(10), 
-                        x='Learning Hours', y='Department', orientation='h',
-                        title="Learning Hours by Department", 
-                        color='Learning Hours', color_continuous_scale='Greens')
-            fig.update_layout(template="plotly_white", paper_bgcolor='white', 
-                            font=dict(color='black'), height=400, showlegend=False)
-            images['learning_departments'] = pio.to_image(fig, format='png', width=600, height=400)
+            dept_learning = learning_metrics['learning_by_department'].head(10)
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            bars = ax.barh(dept_learning['Department'], dept_learning['Learning Hours'], 
+                          color=plt.cm.Greens(dept_learning['Learning Hours'] / dept_learning['Learning Hours'].max()))
+            ax.set_xlabel('Learning Hours')
+            ax.set_ylabel('Department')
+            ax.set_title('Learning Hours by Department', fontsize=14, fontweight='bold')
+            
+            # Add value labels
+            for i, bar in enumerate(bars):
+                width = bar.get_width()
+                ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
+                       f'{width:.1f}', ha='left', va='center')
+            
+            plt.tight_layout()
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            images['learning_departments'] = buf.read()
+            buf.close()
+            plt.close()
         
         # Learning by Batch
         if not learning_metrics['learning_by_batch'].empty:
-            fig = px.line(learning_metrics['learning_by_batch'], x='Batch', y='Learning Hours',
-                         title="Learning Hours by Batch Year", markers=True)
-            fig.update_layout(template="plotly_white", paper_bgcolor='white', 
-                            font=dict(color='black'), height=400)
-            images['learning_batch'] = pio.to_image(fig, format='png', width=600, height=400)
+            batch_data = learning_metrics['learning_by_batch']
+            
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(batch_data['Batch'], batch_data['Learning Hours'], 
+                   marker='o', linewidth=2, markersize=6, color='#1f77b4')
+            ax.set_xlabel('Batch Year')
+            ax.set_ylabel('Learning Hours')
+            ax.set_title('Learning Hours by Batch Year', fontsize=14, fontweight='bold')
+            ax.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            buf = BytesIO()
+            plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+            buf.seek(0)
+            images['learning_batch'] = buf.read()
+            buf.close()
+            plt.close()
+        
+    except Exception as e:
+        st.warning(f"⚠️ Could not generate charts for PDF: {e}")
+        # Return empty images dict if chart generation fails
+        pass
+    
+    return images
     
     return images
 
@@ -913,9 +1033,46 @@ def load_google_sheets(credentials_json: dict, sheet_url: str, worksheet_name: s
         client = gspread.authorize(creds)
         sheet = client.open_by_url(sheet_url)
         worksheet = sheet.worksheet(worksheet_name)
-        data = worksheet.get_all_records()
-        df = pd.DataFrame(data)
+        
+        # Get all values as raw data first
+        all_values = worksheet.get_all_values()
+        
+        if not all_values:
+            st.error("❌ No data found in the worksheet")
+            return None
+        
+        # Get headers and fix duplicates/empty names
+        headers = all_values[0]
+        fixed_headers = []
+        header_counts = {}
+        
+        for i, header in enumerate(headers):
+            # Clean up the header
+            clean_header = str(header).strip()
+            if not clean_header or clean_header.lower() in ['false', 'true', '']:
+                clean_header = f"Column_{i+1}"
+            
+            # Handle duplicates
+            if clean_header in header_counts:
+                header_counts[clean_header] += 1
+                clean_header = f"{clean_header}_{header_counts[clean_header]}"
+            else:
+                header_counts[clean_header] = 0
+            
+            fixed_headers.append(clean_header)
+        
+        # Create DataFrame with fixed headers
+        data_rows = all_values[1:]  # Skip header row
+        df = pd.DataFrame(data_rows, columns=fixed_headers)
+        
+        # Remove completely empty columns
+        df = df.dropna(axis=1, how='all')
+        
+        # Remove completely empty rows
+        df = df.dropna(axis=0, how='all')
+        
         return df
+        
     except Exception as e:
         st.error(f"❌ Error loading Google Sheets: {e}")
         return None
@@ -938,6 +1095,12 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = 'Not Specified'
     
+    # Clean up empty values and replace with 'Not Specified'
+    for col in required_columns:
+        df[col] = df[col].fillna('Not Specified')
+        df[col] = df[col].astype(str).replace('', 'Not Specified')
+        df[col] = df[col].replace('nan', 'Not Specified')
+    
     # Ensure learning-related columns exist
     if 'Number of Attendees' not in df.columns:
         df['Number of Attendees'] = 0
@@ -945,13 +1108,19 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     if 'Time devoted' not in df.columns:
         df['Time devoted'] = 0
     
-    # Batch numeric
-    df['Batch'] = pd.to_numeric(df['Batch'], errors='coerce').fillna(0).astype(int)
+    # Clean numeric columns
+    df['Number of Attendees'] = df['Number of Attendees'].fillna(0)
+    df['Time devoted'] = df['Time devoted'].fillna(0)
+    
+    # Batch numeric - handle empty/invalid values better
+    df['Batch'] = df['Batch'].replace('', '2000')  # Default year for empty batches
+    df['Batch'] = pd.to_numeric(df['Batch'], errors='coerce').fillna(2000).astype(int)
     
     # Normalize Format column
     if 'Format' not in df.columns:
         df['Format'] = 'Not Specified'
     df['Format'] = df['Format'].fillna('Not Specified').astype(str)
+    df['Format'] = df['Format'].replace('', 'Not Specified')
     
     # Consolidate Session Format columns into a list per row
     df = consolidate_session_format_columns(df)
@@ -1006,6 +1175,7 @@ def calculate_session_metrics(df: pd.DataFrame, today: date):
             all_sessions.append({
                 'date': sd,
                 'alumni': row.get('Name', 'Unknown'),
+                'department': row.get('Department', 'Unknown'),  # Fixed: use 'department' key
                 'formats': [fmt for fmt in session_formats if fmt not in [None, '', 'Not Specified']],
                 'learning_hours': row.get('Learning Hours Per Session', 0)
             })
@@ -1099,34 +1269,155 @@ def main():
         with col4:
             st.markdown(create_metric_card(f"{learning_metrics['total_learning_hours']:.0f}", "TOTAL LEARNING HOURS", "learning"), unsafe_allow_html=True)
 
-        # SECTION: LEARNING IMPACT ANALYTICS
-        st.markdown('<div class="section-header">📚 LEARNING IMPACT ANALYTICS</div>', unsafe_allow_html=True)
+        # SECTION: TODAY'S SESSION DETAILS
+        st.markdown('<div class="section-header">� TODAY\'S SESSION DETAILS</div>', unsafe_allow_html=True)
         
-        col1, col2 = st.columns(2)
+        if session_metrics['today_session_details']:
+            today_sessions_df = pd.DataFrame(session_metrics['today_session_details'])
+            today_sessions_df['formats'] = today_sessions_df['formats'].apply(lambda x: ', '.join(x) if isinstance(x, list) else str(x))
+            
+            st.metric("Sessions Scheduled for Today", len(session_metrics['today_session_details']))
+            
+            # Display today's sessions in a nice format
+            for idx, session in enumerate(today_sessions_df.to_dict('records')):
+                # Get department info from the filtered_df
+                dept_info = filtered_df[filtered_df['Name'] == session['alumni']]['Department'].iloc[0] if len(filtered_df[filtered_df['Name'] == session['alumni']]) > 0 else "Unknown"
+                
+                with st.expander(f"Session {idx+1}: {session['alumni']} ({dept_info})"):
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Alumni", session['alumni'])
+                    with col2:
+                        st.metric("Department", dept_info)
+                    with col3:
+                        st.metric("Formats", session['formats'])
+                    with col4:
+                        st.metric("Learning Hours", f"{session['learning_hours']:.1f}")
+        else:
+            st.info("No sessions scheduled for today")
+
+        # SECTION: INDIVIDUAL ALUMNI ANALYSIS
+        st.markdown('<div class="section-header">👤 INDIVIDUAL ALUMNI ANALYSIS</div>', unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([1, 2])
         
         with col1:
-            st.markdown('<div class="subsection-header">TOP LEARNING CONTRIBUTORS</div>', unsafe_allow_html=True)
-            top_alumni = learning_metrics['learning_by_alumni'].head(10)
-            if not top_alumni.empty:
-                fig = px.bar(top_alumni, x='Learning Hours', y='Name', orientation='h',
-                            color='Learning Hours', color_continuous_scale='Viridis',
-                            title="Top 10 Alumni by Learning Hours")
-                fig.update_layout(height=400, showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No learning data available")
+            # Dropdown to select alumni
+            alumni_list = sorted(filtered_df['Name'].unique().tolist())
+            selected_alumni = st.selectbox("Select Alumni for Detailed Analysis", alumni_list)
+            
+            if selected_alumni:
+                alumni_data = filtered_df[filtered_df['Name'] == selected_alumni]
+                total_sessions = len(alumni_data)
+                total_learning_hours = alumni_data['Learning Hours'].sum()
+                avg_learning_per_session = total_learning_hours / total_sessions if total_sessions > 0 else 0
+                
+                # Display alumni metrics
+                st.markdown(f"### {selected_alumni}")
+                st.metric("Total Sessions", total_sessions)
+                st.metric("Total Learning Hours", f"{total_learning_hours:.1f}")
+                st.metric("Avg Hours per Session", f"{avg_learning_per_session:.1f}")
+                
+                # Alumni details
+                if not alumni_data.empty:
+                    first_record = alumni_data.iloc[0]
+                    st.markdown("**Details:**")
+                    st.write(f"**Department:** {first_record['Department']}")
+                    st.write(f"**Company:** {first_record['Company']}")
+                    st.write(f"**Batch:** {first_record['Batch']}")
         
         with col2:
-            st.markdown('<div class="subsection-header">LEARNING HOURS BY DEPARTMENT</div>', unsafe_allow_html=True)
-            if not learning_metrics['learning_by_department'].empty:
-                fig = px.bar(learning_metrics['learning_by_department'].head(10), 
-                            x='Learning Hours', y='Department', orientation='h',
-                            color='Learning Hours', color_continuous_scale='Plasma',
-                            title="Learning Hours by Department")
-                fig.update_layout(height=400, showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("No department learning data available")
+            if selected_alumni:
+                alumni_sessions = filtered_df[filtered_df['Name'] == selected_alumni]
+                
+                if not alumni_sessions.empty and alumni_sessions['Learning Hours'].sum() > 0:
+                    # Create comprehensive session format analysis
+                    format_hours = {}
+                    total_sessions_by_format = {}
+                    
+                    for idx, row in alumni_sessions.iterrows():
+                        formats = row['Session Format'] if isinstance(row['Session Format'], list) else [str(row['Session Format'])]
+                        
+                        # Get individual session data for proper calculation
+                        attendees_str = str(row.get('Number of Attendees', '0')).strip()
+                        time_str = str(row.get('Time devoted', '0')).strip()
+                        
+                        # Parse attendees - could be comma separated like "15,20"
+                        if ',' in attendees_str:
+                            attendees_list = [float(x.strip()) for x in attendees_str.split(',') if x.strip() and x.strip() != 'nan']
+                        else:
+                            try:
+                                attendees_list = [float(attendees_str)] if attendees_str not in ['', 'nan', 'None'] else [0]
+                            except ValueError:
+                                attendees_list = [0]
+                        
+                        # Parse time - could be comma separated like "0.5,0.5"
+                        if ',' in time_str:
+                            time_list = [float(x.strip()) for x in time_str.split(',') if x.strip() and x.strip() != 'nan']
+                        else:
+                            try:
+                                time_list = [float(time_str)] if time_str not in ['', 'nan', 'None'] else [0]
+                            except ValueError:
+                                time_list = [0]
+                        
+                        # Calculate learning hours for each format based on actual data
+                        # If we have multiple attendees/times, pair them with formats
+                        for i, fmt in enumerate(formats):
+                            if fmt != 'Not Specified' and fmt.strip():
+                                # Use corresponding attendee count and time if available
+                                attendee_count = attendees_list[i] if i < len(attendees_list) else (attendees_list[0] if attendees_list else 0)
+                                time_devoted = time_list[i] if i < len(time_list) else (time_list[0] if time_list else 0)
+                                
+                                # Calculate actual learning hours for this specific format
+                                format_learning_hours = attendee_count * time_devoted
+                                
+                                format_hours[fmt] = format_hours.get(fmt, 0) + format_learning_hours
+                                total_sessions_by_format[fmt] = total_sessions_by_format.get(fmt, 0) + 1
+                    
+                    if format_hours:
+                        # Create pie chart showing learning hours by format
+                        formats = list(format_hours.keys())
+                        hours = list(format_hours.values())
+                        
+                        fig_pie = px.pie(values=hours, names=formats, hole=0.4,
+                                       color_discrete_sequence=TECHNO_COLORS['cyber'], 
+                                       title=f"{selected_alumni}'s Learning Hours by Session Format")
+                        fig_pie.update_traces(textposition='inside', textinfo='percent+label+value')
+                        fig_pie.update_layout(height=400)
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                        
+                        # Create detailed breakdown table
+                        st.markdown("**Format Breakdown:**")
+                        breakdown_data = []
+                        for fmt in formats:
+                            sessions_count = total_sessions_by_format[fmt]
+                            total_hours = format_hours[fmt]
+                            avg_hours_per_session = total_hours / sessions_count if sessions_count > 0 else 0
+                            
+                            breakdown_data.append({
+                                'Format': fmt,
+                                'Learning Hours': f"{total_hours:.1f}",
+                                'Sessions': f"{sessions_count:.0f}",
+                                'Avg Hours/Session': f"{avg_hours_per_session:.1f}"
+                            })
+                        
+                        breakdown_df = pd.DataFrame(breakdown_data)
+                        breakdown_df = breakdown_df.sort_values('Learning Hours', ascending=False, key=lambda x: x.str.replace('.', '').astype(float))
+                        st.dataframe(breakdown_df, use_container_width=True, height=200)
+                        
+                        # Show session timeline with formats
+                        st.markdown("**Session Timeline:**")
+                        timeline_df = alumni_sessions[['Session date', 'Learning Hours']].copy()
+                        timeline_df['Session Formats'] = alumni_sessions['Session Format'].apply(
+                            lambda x: ', '.join([fmt for fmt in (x if isinstance(x, list) else [str(x)]) if fmt != 'Not Specified'])
+                        )
+                        timeline_df['Session date'] = timeline_df['Session date'].astype(str)
+                        timeline_df = timeline_df.sort_values('Learning Hours', ascending=False)
+                        st.dataframe(timeline_df[['Session date', 'Session Formats', 'Learning Hours']], use_container_width=True, height=200)
+                    else:
+                        st.info("No session format data available for this alumni")
+                else:
+                    st.info("No learning hours recorded for this alumni")
 
         # SECTION: SESSION ANALYTICS
         st.markdown('<div class="section-header">🎯 SESSION ANALYTICS</div>', unsafe_allow_html=True)
@@ -1155,23 +1446,29 @@ def main():
                 st.info("No session format data available")
         
         with tab2:
+            # Department Engagement
+            st.markdown("### Alumni Count by Department")
             dept_counts = filtered_df['Department'].value_counts()
             if not dept_counts.empty:
                 c1, c2 = st.columns(2)
                 with c1:
-                    fig_dept = px.bar(x=dept_counts.values, y=dept_counts.index, orientation='h',
-                                     color=dept_counts.values, color_continuous_scale='Blues',
-                                     title="Alumni Count by Department")
-                    fig_dept.update_layout(height=400)
-                    st.plotly_chart(fig_dept, use_container_width=True)
+                    fig_dept_pie = px.pie(values=dept_counts.values, names=dept_counts.index, hole=0.4,
+                                         color_discrete_sequence=TECHNO_COLORS['neon'], 
+                                         title="Department Distribution")
+                    fig_dept_pie.update_traces(textposition='inside', textinfo='percent+label')
+                    fig_dept_pie.update_layout(height=400)
+                    st.plotly_chart(fig_dept_pie, use_container_width=True)
                 with c2:
-                    if not learning_metrics['learning_by_department'].empty:
-                        fig_learn = px.bar(learning_metrics['learning_by_department'], 
-                                          x='Learning Hours', y='Department', orientation='h',
-                                          color='Learning Hours', color_continuous_scale='Greens',
-                                          title="Learning Hours by Department")
-                        fig_learn.update_layout(height=400)
-                        st.plotly_chart(fig_learn, use_container_width=True)
+                    fig_dept_bar = px.bar(x=dept_counts.values, y=dept_counts.index, orientation='h',
+                                         color=dept_counts.values, color_continuous_scale='Blues',
+                                         title="Alumni Count by Department")
+                    fig_dept_bar.update_layout(height=400, xaxis_title="Count", yaxis_title="Department")
+                    st.plotly_chart(fig_dept_bar, use_container_width=True)
+                    
+                # Department engagement table
+                dept_engagement = engagement_metrics['dept_engagement'].sort_values('Learning Hours', ascending=False)
+                st.markdown("### Department Learning Engagement")
+                st.dataframe(dept_engagement, use_container_width=True, height=200)
             else:
                 st.info("No department data available")
         
@@ -1219,21 +1516,7 @@ def main():
             )
         
         with col2:
-            # PDF Report
-            try:
-                pdf_buffer = generate_pdf_report(filtered_df, session_metrics, learning_metrics, engagement_metrics, today)
-                st.download_button(
-                    label="📄 DOWNLOAD PDF REPORT",
-                    data=pdf_buffer,
-                    file_name=f"alumni_analytics_report_{today}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            except Exception as e:
-                st.error(f"Error generating PDF: {e}")
-        
-        with col3:
-            # Word Report
+       
             try:
                 word_buffer = generate_word_report(filtered_df, session_metrics, learning_metrics, engagement_metrics, today)
                 st.download_button(
