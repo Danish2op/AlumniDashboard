@@ -7,3 +7,4 @@ google-auth
 reportlab
 python-docx
 matplotlib
+kaleido
