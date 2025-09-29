@@ -1171,7 +1171,7 @@ def clean_dataframe(df: pd.DataFrame, today: date = None) -> pd.DataFrame:
 # ---------------------------------------------------------
 # Data loader with caching
 # ---------------------------------------------------------
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=60)
 def load_data():
     """Load data from Google Sheets using secrets.toml"""
     try:
