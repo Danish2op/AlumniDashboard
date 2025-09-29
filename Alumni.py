@@ -1288,8 +1288,6 @@ def main():
             st.markdown("### 📊 DATA SOURCE")
             st.success("🔐 SECURELY CONNECTED VIA SECRETS.TOML")
             credentials_dict, sheet_url = get_google_sheets_config()
-            if sheet_url:
-                st.markdown(f"[🔗 VIEW SOURCE SHEET]({sheet_url})")
 
         # Apply filters
         filtered_df = df[
