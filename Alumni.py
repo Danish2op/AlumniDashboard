@@ -1240,15 +1240,13 @@ def calculate_session_metrics(df: pd.DataFrame, today: date):
 # Main Application
 # ---------------------------------------------------------
 def main():
-    # --- CHANGED: New header with logos and updated titles ---
+    # --- CHANGED: New header with a different centered layout ---
     header_html = """
-    <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; margin-bottom: 2rem;">
-        <img src="https://i.ibb.co/KzSQtf7q/ARO-logo.jpg" alt="Logo 1" style="height: 80px;">
-        <div style="text-align: center;">
-            <div class="main-header" style="padding: 0; margin-bottom: 0.5rem; font-size: 2.8rem;">Alumni Bootcamp 2025 Analytics Dashboard</div>
-            <div style='font-size: 1.2rem; color: #cccccc;'>Built For Alumni Relations Office By Team SAIC</div>
-        </div>
-        <img src="https://i.ibb.co/V095yskk/saic-logo-png.png" alt="Logo 2" style="height: 80px;">
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <img src="https://i.ibb.co/gh7mjqb/Whats-App-Image-2025-09-25-at-12-33-43-991b6071.jpg" alt="Logo 1" style="height: 80px; margin-bottom: 1rem;">
+        <div class="main-header" style="padding: 0; margin-bottom: 0.5rem; font-size: 2.8rem;">Alumni Bootcamp 2025 Analytics Dashboard</div>
+        <div style='font-size: 1.2rem; color: #cccccc; margin-bottom: 0.5rem;'>Built For Alumni Relations Office By Team SAIC</div>
+        <img src="https://i.ibb.co/V095yskk/saic-logo-png.png" alt="Logo 2" style="height: 40px;">
     </div>
     """
     st.markdown(header_html, unsafe_allow_html=True)
@@ -1578,21 +1576,50 @@ def main():
                         # Convert to DataFrame and sort
                         all_alumni_hours = pd.DataFrame(all_alumni_actual_hours)
                         all_alumni_hours = all_alumni_hours[all_alumni_hours['Learning Hours'] > 0]  # Only show alumni with learning hours
-                        all_alumni_hours = all_alumni_hours.sort_values('Learning Hours', ascending=True)
-                        
+                        all_alumni_hours = all_alumni_hours.sort_values('Learning Hours', ascending=False) # Sort descending for better viz
+
+                        # ---- CHANGED: Replaced px.bar with go.Figure to fix hover text ----
                         if not all_alumni_hours.empty:
-                            # Highlight selected alumni in the chart
-                            colors_list = ['#ff00ff' if name == selected_alumni else '#00ffff' for name in all_alumni_hours['Name']]
+                            # Separate the selected alumni from the rest
+                            selected_alumni_df = all_alumni_hours[all_alumni_hours['Name'] == selected_alumni]
+                            other_alumni_df = all_alumni_hours[all_alumni_hours['Name'] != selected_alumni]
+
+                            fig_bar = go.Figure()
+
+                            # Add trace for other alumni with a colorscale
+                            fig_bar.add_trace(go.Bar(
+                                y=other_alumni_df['Name'],
+                                x=other_alumni_df['Learning Hours'],
+                                name='Other Alumni',
+                                orientation='h',
+                                marker=dict(
+                                    color=other_alumni_df['Learning Hours'], # Set color data
+                                    colorscale='Viridis' # Apply colorscale
+                                )
+                            ))
+
+                            # Add trace for the selected alumni
+                            fig_bar.add_trace(go.Bar(
+                                y=selected_alumni_df['Name'],
+                                x=selected_alumni_df['Learning Hours'],
+                                name=selected_alumni,
+                                orientation='h',
+                                marker=dict(
+                                    color='#ff00ff' # Highlight color
+                                )
+                            ))
+
+                            # Update layout
+                            fig_bar.update_layout(
+                                title_text="Learning Hours by Alumni (Selected alumni highlighted)",
+                                height=max(400, len(all_alumni_hours) * 25),
+                                xaxis_title="Learning Hours",
+                                yaxis_title="Alumni",
+                                template="plotly_dark",
+                                yaxis={'categoryorder':'total descending'},
+                                showlegend=False
+                            )
                             
-                            fig_bar = px.bar(all_alumni_hours, x='Learning Hours', y='Name', orientation='h',
-                                            color=all_alumni_hours['Learning Hours'], 
-                                            color_continuous_scale='Viridis',
-                                            title="Learning Hours by Alumni (Selected alumni highlighted)")
-                            
-                            # Update bar colors to highlight selected alumni
-                            fig_bar.update_traces(marker_color=colors_list)
-                            fig_bar.update_layout(height=max(400, len(all_alumni_hours) * 25), 
-                                                xaxis_title="Learning Hours", yaxis_title="Alumni")
                             st.plotly_chart(fig_bar, use_container_width=True)
                         else:
                             st.info("No alumni with recorded learning hours found")
