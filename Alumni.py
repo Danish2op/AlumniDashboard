@@ -1243,7 +1243,7 @@ def main():
     # --- CHANGED: New header with a different centered layout ---
     header_html = """
     <div style="text-align: center; margin-bottom: 2rem;">
-        <img src="https://i.ibb.co/gh7mjqb/Whats-App-Image-2025-09-25-at-12-33-43-991b6071.jpg" alt="Logo 1" style="height: 80px; margin-bottom: 1rem;">
+        <img src="https://i.ibb.co/KzSQtf7q/ARO-logo.jpg" alt="Logo 1" style="height: 80px; margin-bottom: 1rem;">
         <div class="main-header" style="padding: 0; margin-bottom: 0.5rem; font-size: 2.8rem;">Alumni Bootcamp 2025 Analytics Dashboard</div>
         <div style='font-size: 1.2rem; color: #cccccc; margin-bottom: 0.5rem;'>Built For Alumni Relations Office By Team SAIC</div>
         <img src="https://i.ibb.co/V095yskk/saic-logo-png.png" alt="Logo 2" style="height: 40px;">
