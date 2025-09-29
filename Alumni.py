@@ -1243,7 +1243,7 @@ def main():
     # --- CHANGED: New header with logos and updated titles ---
     header_html = """
     <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; margin-bottom: 2rem;">
-        <img src="https://i.ibb.co/gh7mjqb/Whats-App-Image-2025-09-25-at-12-33-43-991b6071.jpg" alt="Logo 1" style="height: 80px;">
+        <img src="https://i.ibb.co/KzSQtf7q/ARO-logo.jpg" alt="Logo 1" style="height: 80px;">
         <div style="text-align: center;">
             <div class="main-header" style="padding: 0; margin-bottom: 0.5rem; font-size: 2.8rem;">Alumni Bootcamp 2025 Analytics Dashboard</div>
             <div style='font-size: 1.2rem; color: #cccccc;'>Built For Alumni Relations Office By Team SAIC</div>
