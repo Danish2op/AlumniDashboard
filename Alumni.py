@@ -42,7 +42,7 @@ from PIL import Image as PILImage
 # App configuration
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Alumni Connect Pro - Analytics Dashboard",
+    page_title="Bootcamp 2025 Analytics Dashboard",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -321,7 +321,7 @@ def consolidate_session_format_columns(df: pd.DataFrame) -> pd.DataFrame:
                 # Skip the main 'Session Format' column if it exists
                 if c == 'Session Format':
                     continue
-                    
+                
                 val = r.get(c, False)
                 # Accept various truthy values: TRUE, True, 1, 'TRUE', 'true'
                 if isinstance(val, str):
@@ -329,7 +329,7 @@ def consolidate_session_format_columns(df: pd.DataFrame) -> pd.DataFrame:
                     is_true = v in ('true', '1', 'yes', 'y', 't')
                 else:
                     is_true = bool(val) and val != 0 and str(val).upper() != 'FALSE'
-                    
+                
                 if is_true:
                     # Extract label after colon if present
                     if ':' in c:
@@ -586,7 +586,7 @@ def create_chart_images(filtered_df, session_metrics, learning_metrics, engageme
             for i, bar in enumerate(bars):
                 width = bar.get_width()
                 ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
-                       f'{int(width)}', ha='left', va='center')
+                        f'{int(width)}', ha='left', va='center')
             
             plt.tight_layout()
             buf = BytesIO()
@@ -602,7 +602,7 @@ def create_chart_images(filtered_df, session_metrics, learning_metrics, engageme
             
             fig, ax = plt.subplots(figsize=(10, 6))
             bars = ax.barh(top_alumni['Name'], top_alumni['Learning Hours'], 
-                          color=plt.cm.viridis(top_alumni['Learning Hours'] / top_alumni['Learning Hours'].max()))
+                        color=plt.cm.viridis(top_alumni['Learning Hours'] / top_alumni['Learning Hours'].max()))
             ax.set_xlabel('Learning Hours')
             ax.set_ylabel('Alumni')
             ax.set_title('Top 10 Alumni by Learning Hours', fontsize=14, fontweight='bold')
@@ -611,7 +611,7 @@ def create_chart_images(filtered_df, session_metrics, learning_metrics, engageme
             for i, bar in enumerate(bars):
                 width = bar.get_width()
                 ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
-                       f'{width:.1f}', ha='left', va='center')
+                        f'{width:.1f}', ha='left', va='center')
             
             plt.tight_layout()
             buf = BytesIO()
@@ -627,7 +627,7 @@ def create_chart_images(filtered_df, session_metrics, learning_metrics, engageme
             # Department Bar Chart
             fig, ax = plt.subplots(figsize=(10, 6))
             bars = ax.barh(dept_counts.index, dept_counts.values, 
-                          color=plt.cm.Blues(dept_counts.values / dept_counts.values.max()))
+                        color=plt.cm.Blues(dept_counts.values / dept_counts.values.max()))
             ax.set_xlabel('Count')
             ax.set_ylabel('Department')
             ax.set_title('Department Distribution', fontsize=14, fontweight='bold')
@@ -636,7 +636,7 @@ def create_chart_images(filtered_df, session_metrics, learning_metrics, engageme
             for i, bar in enumerate(bars):
                 width = bar.get_width()
                 ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
-                       f'{int(width)}', ha='left', va='center')
+                        f'{int(width)}', ha='left', va='center')
             
             plt.tight_layout()
             buf = BytesIO()
@@ -652,7 +652,7 @@ def create_chart_images(filtered_df, session_metrics, learning_metrics, engageme
             
             fig, ax = plt.subplots(figsize=(10, 6))
             bars = ax.barh(dept_learning['Department'], dept_learning['Learning Hours'], 
-                          color=plt.cm.Greens(dept_learning['Learning Hours'] / dept_learning['Learning Hours'].max()))
+                        color=plt.cm.Greens(dept_learning['Learning Hours'] / dept_learning['Learning Hours'].max()))
             ax.set_xlabel('Learning Hours')
             ax.set_ylabel('Department')
             ax.set_title('Learning Hours by Department', fontsize=14, fontweight='bold')
@@ -661,7 +661,7 @@ def create_chart_images(filtered_df, session_metrics, learning_metrics, engageme
             for i, bar in enumerate(bars):
                 width = bar.get_width()
                 ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, 
-                       f'{width:.1f}', ha='left', va='center')
+                        f'{width:.1f}', ha='left', va='center')
             
             plt.tight_layout()
             buf = BytesIO()
@@ -677,7 +677,7 @@ def create_chart_images(filtered_df, session_metrics, learning_metrics, engageme
             
             fig, ax = plt.subplots(figsize=(10, 6))
             ax.plot(batch_data['Batch'], batch_data['Learning Hours'], 
-                   marker='o', linewidth=2, markersize=6, color='#1f77b4')
+                    marker='o', linewidth=2, markersize=6, color='#1f77b4')
             ax.set_xlabel('Batch Year')
             ax.set_ylabel('Learning Hours')
             ax.set_title('Learning Hours by Batch Year', fontsize=14, fontweight='bold')
@@ -1240,9 +1240,19 @@ def calculate_session_metrics(df: pd.DataFrame, today: date):
 # Main Application
 # ---------------------------------------------------------
 def main():
-    st.markdown('<div class="main-header">🚀 ALUMNI CONNECT PRO</div>', unsafe_allow_html=True)
-    st.markdown("<div style='text-align: center; font-size: 1.2rem; color: #cccccc; margin-bottom: 2rem;'>CYBER ANALYTICS DASHBOARD</div>", unsafe_allow_html=True)
-    
+    # --- CHANGED: New header with logos and updated titles ---
+    header_html = """
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 0; margin-bottom: 2rem;">
+        <img src="https://i.ibb.co/gh7mjqb/Whats-App-Image-2025-09-25-at-12-33-43-991b6071.jpg" alt="Logo 1" style="height: 80px;">
+        <div style="text-align: center;">
+            <div class="main-header" style="padding: 0; margin-bottom: 0.5rem; font-size: 2.8rem;">Alumni Bootcamp 2025 Analytics Dashboard</div>
+            <div style='font-size: 1.2rem; color: #cccccc;'>Built For Alumni Relations Office By Team SAIC</div>
+        </div>
+        <img src="https://i.ibb.co/V095yskk/saic-logo-png.png" alt="Logo 2" style="height: 80px;">
+    </div>
+    """
+    st.markdown(header_html, unsafe_allow_html=True)
+
     # Get today's date
     try:
         today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
@@ -1320,7 +1330,7 @@ def main():
             st.markdown(create_metric_card(f"{learning_metrics['total_learning_hours']:.0f}", "TOTAL LEARNING HOURS", "learning"), unsafe_allow_html=True)
 
         # SECTION: TODAY'S SESSION DETAILS
-        st.markdown('<div class="section-header">� TODAY\'S SESSION DETAILS</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">📅 TODAY\'S SESSION DETAILS</div>', unsafe_allow_html=True)
         
         if session_metrics['today_session_details']:
             today_sessions_df = pd.DataFrame(session_metrics['today_session_details'])
@@ -1501,8 +1511,8 @@ def main():
                         hours = list(format_hours.values())
                         
                         fig_pie = px.pie(values=hours, names=formats, hole=0.4,
-                                       color_discrete_sequence=TECHNO_COLORS['cyber'], 
-                                       title=f"{selected_alumni}'s Learning Hours by Session Format")
+                                        color_discrete_sequence=TECHNO_COLORS['cyber'], 
+                                        title=f"{selected_alumni}'s Learning Hours by Session Format")
                         fig_pie.update_traces(textposition='inside', textinfo='percent+label+value')
                         fig_pie.update_layout(height=500)
                         st.plotly_chart(fig_pie, use_container_width=True)
@@ -1625,15 +1635,15 @@ def main():
                 c1, c2 = st.columns(2)
                 with c1:
                     fig_dept_pie = px.pie(values=dept_counts.values, names=dept_counts.index, hole=0.4,
-                                         color_discrete_sequence=TECHNO_COLORS['neon'], 
-                                         title="Department Distribution")
+                                        color_discrete_sequence=TECHNO_COLORS['neon'], 
+                                        title="Department Distribution")
                     fig_dept_pie.update_traces(textposition='inside', textinfo='percent+label')
                     fig_dept_pie.update_layout(height=400)
                     st.plotly_chart(fig_dept_pie, use_container_width=True)
                 with c2:
                     fig_dept_bar = px.bar(x=dept_counts.values, y=dept_counts.index, orientation='h',
-                                         color=dept_counts.values, color_continuous_scale='Blues',
-                                         title="Alumni Count by Department")
+                                        color=dept_counts.values, color_continuous_scale='Blues',
+                                        title="Alumni Count by Department")
                     fig_dept_bar.update_layout(height=400, xaxis_title="Count", yaxis_title="Department")
                     st.plotly_chart(fig_dept_bar, use_container_width=True)
                     
