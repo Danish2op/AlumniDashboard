@@ -2,6 +2,18 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import streamlit as st
+import pandas as pd
+import numpy as np
+import gspread
+import plotly.express as px
+import plotly.io as pio
+import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import seaborn as sns
+import tempfile
+import os
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 import numpy as np
@@ -348,17 +360,34 @@ def consolidate_session_format_columns(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
-def calculate_learning_hours(df: pd.DataFrame):
+def calculate_learning_hours(df: pd.DataFrame, today: date = None):
     """
     Calculate learning hours metrics from the dataframe.
     Learning Hours = Number of Attendees × Time Devoted
+    Only includes sessions that have already happened (past dates).
     """
+    if today is None:
+        try:
+            today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        except Exception:
+            today = datetime.now().date()
+    
     # Initialize learning hours columns
     df['Learning Hours'] = 0
     df['Learning Hours Per Session'] = 0
     
     for idx, row in df.iterrows():
         try:
+            # Check if this session has already happened
+            session_dates = parse_session_dates(row.get('Session date', ''), reference_date=today)
+            has_past_sessions = any(sd < today for sd in session_dates)
+            
+            # Only calculate learning hours for sessions that have already happened
+            if not has_past_sessions:
+                df.at[idx, 'Learning Hours'] = 0
+                df.at[idx, 'Learning Hours Per Session'] = 0
+                continue
+            
             # Parse Number of Attendees
             attendees_str = str(row.get('Number of Attendees', '0')).strip()
             if attendees_str in ['', 'nan', 'None']:
@@ -1080,7 +1109,13 @@ def load_google_sheets(credentials_json: dict, sheet_url: str, worksheet_name: s
 # ---------------------------------------------------------
 # Data cleaning
 # ---------------------------------------------------------
-def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def clean_dataframe(df: pd.DataFrame, today: date = None) -> pd.DataFrame:
+    if today is None:
+        try:
+            today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        except Exception:
+            today = datetime.now().date()
+    
     # Standardize column names (strip whitespace)
     df.columns = [c.strip() for c in df.columns]
     
@@ -1128,8 +1163,8 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     # Normalize Session date
     df['Session date'] = df['Session date'].fillna('').astype(str)
     
-    # Calculate learning hours
-    df = calculate_learning_hours(df)
+    # Calculate learning hours (only for past sessions)
+    df = calculate_learning_hours(df, today)
     
     return df
 
@@ -1140,6 +1175,12 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 def load_data():
     """Load data from Google Sheets using secrets.toml"""
     try:
+        # Get today's date
+        try:
+            today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        except Exception:
+            today = datetime.now().date()
+            
         # Get configuration from secrets
         credentials_dict, sheet_url = get_google_sheets_config()
         
@@ -1148,7 +1189,7 @@ def load_data():
         
         df = load_google_sheets(credentials_dict, sheet_url)
         if df is not None and not df.empty:
-            return clean_dataframe(df)
+            return clean_dataframe(df, today)
         else:
             st.error("❌ No data found in Google Sheets")
             return pd.DataFrame()
@@ -1201,6 +1242,15 @@ def calculate_session_metrics(df: pd.DataFrame, today: date):
 def main():
     st.markdown('<div class="main-header">🚀 ALUMNI CONNECT PRO</div>', unsafe_allow_html=True)
     st.markdown("<div style='text-align: center; font-size: 1.2rem; color: #cccccc; margin-bottom: 2rem;'>CYBER ANALYTICS DASHBOARD</div>", unsafe_allow_html=True)
+    
+    # Get today's date
+    try:
+        today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    except Exception:
+        today = datetime.now().date()
+    
+    # Display today's date prominently
+    st.markdown(f"<div style='text-align: center; font-size: 1.1rem; color: #00ffff; margin-bottom: 1rem; background: rgba(0, 255, 255, 0.1); padding: 0.5rem; border-radius: 8px;'>📅 Today: {today.strftime('%A, %B %d, %Y')}</div>", unsafe_allow_html=True)
 
     # Load data
     with st.spinner('🔄 CONNECTING TO DATA SOURCE...'):
@@ -1308,15 +1358,65 @@ def main():
             
             if selected_alumni:
                 alumni_data = filtered_df[filtered_df['Name'] == selected_alumni]
-                total_sessions = len(alumni_data)
-                total_learning_hours = alumni_data['Learning Hours'].sum()
-                avg_learning_per_session = total_learning_hours / total_sessions if total_sessions > 0 else 0
+                
+                # Calculate actual sessions and learning hours by parsing individual data
+                total_actual_sessions = 0
+                total_actual_learning_hours = 0
+                
+                for idx, row in alumni_data.iterrows():
+                    # Parse attendees and time to count actual sessions
+                    attendees_str = str(row.get('Number of Attendees', '0')).strip()
+                    time_str = str(row.get('Time devoted', '0')).strip()
+                    
+                    # Parse attendees list
+                    if ',' in attendees_str:
+                        attendees_list = []
+                        for x in attendees_str.split(','):
+                            x = x.strip()
+                            if x and x not in ['nan', '', 'None']:
+                                try:
+                                    attendees_list.append(float(x))
+                                except ValueError:
+                                    pass
+                    else:
+                        try:
+                            attendees_list = [float(attendees_str)] if attendees_str not in ['', 'nan', 'None'] else []
+                        except ValueError:
+                            attendees_list = []
+                    
+                    # Parse time list
+                    if ',' in time_str:
+                        time_list = []
+                        for x in time_str.split(','):
+                            x = x.strip()
+                            if x and x not in ['nan', '', 'None']:
+                                try:
+                                    time_list.append(float(x))
+                                except ValueError:
+                                    pass
+                    else:
+                        try:
+                            time_list = [float(time_str)] if time_str not in ['', 'nan', 'None'] else []
+                        except ValueError:
+                            time_list = []
+                    
+                    # Count actual sessions (max of attendees or time entries)
+                    session_count = max(len(attendees_list), len(time_list))
+                    total_actual_sessions += session_count
+                    
+                    # Calculate learning hours for each session
+                    for i in range(session_count):
+                        attendee_count = attendees_list[i] if i < len(attendees_list) else (attendees_list[0] if attendees_list else 0)
+                        time_devoted = time_list[i] if i < len(time_list) else (time_list[0] if time_list else 0)
+                        total_actual_learning_hours += attendee_count * time_devoted
+                
+                avg_learning_per_session = total_actual_learning_hours / total_actual_sessions if total_actual_sessions > 0 else 0
                 
                 # Display alumni metrics
                 st.markdown(f"### {selected_alumni}")
-                st.metric("Total Sessions", total_sessions)
-                st.metric("Total Learning Hours", f"{total_learning_hours:.1f}")
-                st.metric("Avg Hours per Session", f"{avg_learning_per_session:.1f}")
+                st.metric("Total Sessions", total_actual_sessions)
+                st.metric("Total Learning Hours", f"{total_actual_learning_hours:.1f}")
+                # st.metric("Avg Hours per Session", f"{avg_learning_per_session:.1f}")
                 
                 # Alumni details
                 if not alumni_data.empty:
@@ -1331,9 +1431,8 @@ def main():
                 alumni_sessions = filtered_df[filtered_df['Name'] == selected_alumni]
                 
                 if not alumni_sessions.empty and alumni_sessions['Learning Hours'].sum() > 0:
-                    # Create comprehensive session format analysis
+                    # Create comprehensive session format analysis with corrected calculations
                     format_hours = {}
-                    total_sessions_by_format = {}
                     
                     for idx, row in alumni_sessions.iterrows():
                         formats = row['Session Format'] if isinstance(row['Session Format'], list) else [str(row['Session Format'])]
@@ -1344,7 +1443,14 @@ def main():
                         
                         # Parse attendees - could be comma separated like "15,20"
                         if ',' in attendees_str:
-                            attendees_list = [float(x.strip()) for x in attendees_str.split(',') if x.strip() and x.strip() != 'nan']
+                            attendees_list = []
+                            for x in attendees_str.split(','):
+                                x = x.strip()
+                                if x and x != 'nan':
+                                    try:
+                                        attendees_list.append(float(x))
+                                    except ValueError:
+                                        pass
                         else:
                             try:
                                 attendees_list = [float(attendees_str)] if attendees_str not in ['', 'nan', 'None'] else [0]
@@ -1353,26 +1459,41 @@ def main():
                         
                         # Parse time - could be comma separated like "0.5,0.5"
                         if ',' in time_str:
-                            time_list = [float(x.strip()) for x in time_str.split(',') if x.strip() and x.strip() != 'nan']
+                            time_list = []
+                            for x in time_str.split(','):
+                                x = x.strip()
+                                if x and x != 'nan':
+                                    try:
+                                        time_list.append(float(x))
+                                    except ValueError:
+                                        pass
                         else:
                             try:
                                 time_list = [float(time_str)] if time_str not in ['', 'nan', 'None'] else [0]
                             except ValueError:
                                 time_list = [0]
                         
+                        # Filter out non-specified formats
+                        valid_formats = [fmt for fmt in formats if fmt != 'Not Specified' and fmt.strip()]
+                        
+                        # If no valid formats but we have learning hours, use "General Session"
+                        if not valid_formats and (attendees_list and attendees_list[0] > 0) and (time_list and time_list[0] > 0):
+                            valid_formats = ['General Session']
+                        
+                        if not valid_formats:
+                            continue
+                        
                         # Calculate learning hours for each format based on actual data
-                        # If we have multiple attendees/times, pair them with formats
-                        for i, fmt in enumerate(formats):
-                            if fmt != 'Not Specified' and fmt.strip():
-                                # Use corresponding attendee count and time if available
-                                attendee_count = attendees_list[i] if i < len(attendees_list) else (attendees_list[0] if attendees_list else 0)
-                                time_devoted = time_list[i] if i < len(time_list) else (time_list[0] if time_list else 0)
-                                
-                                # Calculate actual learning hours for this specific format
-                                format_learning_hours = attendee_count * time_devoted
-                                
-                                format_hours[fmt] = format_hours.get(fmt, 0) + format_learning_hours
-                                total_sessions_by_format[fmt] = total_sessions_by_format.get(fmt, 0) + 1
+                        # Match formats with their corresponding attendees and time
+                        for i, fmt in enumerate(valid_formats):
+                            # Use corresponding attendee count and time if available, otherwise use first values
+                            attendee_count = attendees_list[i] if i < len(attendees_list) else (attendees_list[0] if attendees_list else 0)
+                            time_devoted = time_list[i] if i < len(time_list) else (time_list[0] if time_list else 0)
+                            
+                            # Calculate actual learning hours for this specific format
+                            format_learning_hours = attendee_count * time_devoted
+                            
+                            format_hours[fmt] = format_hours.get(fmt, 0) + format_learning_hours
                     
                     if format_hours:
                         # Create pie chart showing learning hours by format
@@ -1383,37 +1504,88 @@ def main():
                                        color_discrete_sequence=TECHNO_COLORS['cyber'], 
                                        title=f"{selected_alumni}'s Learning Hours by Session Format")
                         fig_pie.update_traces(textposition='inside', textinfo='percent+label+value')
-                        fig_pie.update_layout(height=400)
+                        fig_pie.update_layout(height=500)
                         st.plotly_chart(fig_pie, use_container_width=True)
                         
-                        # Create detailed breakdown table
-                        st.markdown("**Format Breakdown:**")
-                        breakdown_data = []
-                        for fmt in formats:
-                            sessions_count = total_sessions_by_format[fmt]
-                            total_hours = format_hours[fmt]
-                            avg_hours_per_session = total_hours / sessions_count if sessions_count > 0 else 0
+                        # Add bar chart for alumni engagement (learning hours by alumni)
+                        st.markdown("### Alumni Engagement - Learning Hours Comparison")
+                        
+                        # Calculate actual learning hours for all alumni using the same logic as individual analysis
+                        all_alumni_actual_hours = []
+                        for alumni_name in filtered_df['Name'].unique():
+                            alumni_rows = filtered_df[filtered_df['Name'] == alumni_name]
+                            total_alumni_learning_hours = 0
                             
-                            breakdown_data.append({
-                                'Format': fmt,
-                                'Learning Hours': f"{total_hours:.1f}",
-                                'Sessions': f"{sessions_count:.0f}",
-                                'Avg Hours/Session': f"{avg_hours_per_session:.1f}"
+                            for idx, row in alumni_rows.iterrows():
+                                # Parse attendees and time to calculate actual learning hours
+                                attendees_str = str(row.get('Number of Attendees', '0')).strip()
+                                time_str = str(row.get('Time devoted', '0')).strip()
+                                
+                                # Parse attendees list
+                                if ',' in attendees_str:
+                                    attendees_list = []
+                                    for x in attendees_str.split(','):
+                                        x = x.strip()
+                                        if x and x not in ['nan', '', 'None']:
+                                            try:
+                                                attendees_list.append(float(x))
+                                            except ValueError:
+                                                pass
+                                else:
+                                    try:
+                                        attendees_list = [float(attendees_str)] if attendees_str not in ['', 'nan', 'None'] else []
+                                    except ValueError:
+                                        attendees_list = []
+                                
+                                # Parse time list
+                                if ',' in time_str:
+                                    time_list = []
+                                    for x in time_str.split(','):
+                                        x = x.strip()
+                                        if x and x not in ['nan', '', 'None']:
+                                            try:
+                                                time_list.append(float(x))
+                                            except ValueError:
+                                                pass
+                                else:
+                                    try:
+                                        time_list = [float(time_str)] if time_str not in ['', 'nan', 'None'] else []
+                                    except ValueError:
+                                        time_list = []
+                                
+                                # Calculate learning hours for each session
+                                session_count = max(len(attendees_list), len(time_list))
+                                for i in range(session_count):
+                                    attendee_count = attendees_list[i] if i < len(attendees_list) else (attendees_list[0] if attendees_list else 0)
+                                    time_devoted = time_list[i] if i < len(time_list) else (time_list[0] if time_list else 0)
+                                    total_alumni_learning_hours += attendee_count * time_devoted
+                            
+                            all_alumni_actual_hours.append({
+                                'Name': alumni_name,
+                                'Learning Hours': total_alumni_learning_hours
                             })
                         
-                        breakdown_df = pd.DataFrame(breakdown_data)
-                        breakdown_df = breakdown_df.sort_values('Learning Hours', ascending=False, key=lambda x: x.str.replace('.', '').astype(float))
-                        st.dataframe(breakdown_df, use_container_width=True, height=200)
+                        # Convert to DataFrame and sort
+                        all_alumni_hours = pd.DataFrame(all_alumni_actual_hours)
+                        all_alumni_hours = all_alumni_hours[all_alumni_hours['Learning Hours'] > 0]  # Only show alumni with learning hours
+                        all_alumni_hours = all_alumni_hours.sort_values('Learning Hours', ascending=True)
                         
-                        # Show session timeline with formats
-                        st.markdown("**Session Timeline:**")
-                        timeline_df = alumni_sessions[['Session date', 'Learning Hours']].copy()
-                        timeline_df['Session Formats'] = alumni_sessions['Session Format'].apply(
-                            lambda x: ', '.join([fmt for fmt in (x if isinstance(x, list) else [str(x)]) if fmt != 'Not Specified'])
-                        )
-                        timeline_df['Session date'] = timeline_df['Session date'].astype(str)
-                        timeline_df = timeline_df.sort_values('Learning Hours', ascending=False)
-                        st.dataframe(timeline_df[['Session date', 'Session Formats', 'Learning Hours']], use_container_width=True, height=200)
+                        if not all_alumni_hours.empty:
+                            # Highlight selected alumni in the chart
+                            colors_list = ['#ff00ff' if name == selected_alumni else '#00ffff' for name in all_alumni_hours['Name']]
+                            
+                            fig_bar = px.bar(all_alumni_hours, x='Learning Hours', y='Name', orientation='h',
+                                            color=all_alumni_hours['Learning Hours'], 
+                                            color_continuous_scale='Viridis',
+                                            title="Learning Hours by Alumni (Selected alumni highlighted)")
+                            
+                            # Update bar colors to highlight selected alumni
+                            fig_bar.update_traces(marker_color=colors_list)
+                            fig_bar.update_layout(height=max(400, len(all_alumni_hours) * 25), 
+                                                xaxis_title="Learning Hours", yaxis_title="Alumni")
+                            st.plotly_chart(fig_bar, use_container_width=True)
+                        else:
+                            st.info("No alumni with recorded learning hours found")
                     else:
                         st.info("No session format data available for this alumni")
                 else:
@@ -1516,7 +1688,6 @@ def main():
             )
         
         with col2:
-       
             try:
                 word_buffer = generate_word_report(filtered_df, session_metrics, learning_metrics, engagement_metrics, today)
                 st.download_button(
