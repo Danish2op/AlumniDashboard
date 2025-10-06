@@ -202,6 +202,14 @@ st.markdown("""
         color: black !important;
     }
 </style>
+
+<script>
+    // Auto-refresh every 30 minutes (1800000 milliseconds)
+    setTimeout(function(){
+        window.location.reload(1);
+    }, 1800000);
+</script>
+
 """, unsafe_allow_html=True)
 
 # Techno color palette
@@ -364,7 +372,7 @@ def calculate_learning_hours(df: pd.DataFrame, today: date = None):
     """
     Calculate learning hours metrics from the dataframe.
     Learning Hours = Number of Attendees × Time Devoted
-    Only includes sessions that have already happened (past dates).
+    Includes ALL sessions regardless of date (past, present, and future).
     """
     if today is None:
         try:
@@ -378,16 +386,6 @@ def calculate_learning_hours(df: pd.DataFrame, today: date = None):
     
     for idx, row in df.iterrows():
         try:
-            # Check if this session has already happened
-            session_dates = parse_session_dates(row.get('Session date', ''), reference_date=today)
-            has_past_sessions = any(sd < today for sd in session_dates)
-            
-            # Only calculate learning hours for sessions that have already happened
-            if not has_past_sessions:
-                df.at[idx, 'Learning Hours'] = 0
-                df.at[idx, 'Learning Hours Per Session'] = 0
-                continue
-            
             # Parse Number of Attendees
             attendees_str = str(row.get('Number of Attendees', '0')).strip()
             if attendees_str in ['', 'nan', 'None']:
@@ -430,7 +428,7 @@ def calculate_learning_hours(df: pd.DataFrame, today: date = None):
                 except ValueError:
                     avg_time = 0
             
-            # Calculate learning hours
+            # Calculate learning hours for ALL sessions (no date filtering)
             learning_hours = avg_attendees * avg_time
             df.at[idx, 'Learning Hours'] = learning_hours
             df.at[idx, 'Learning Hours Per Session'] = learning_hours
@@ -1169,9 +1167,8 @@ def clean_dataframe(df: pd.DataFrame, today: date = None) -> pd.DataFrame:
     return df
 
 # ---------------------------------------------------------
-# Data loader with caching
+# Data loader without caching for fresh data on every reload
 # ---------------------------------------------------------
-@st.cache_data(ttl=60)
 def load_data():
     """Load data from Google Sheets using secrets.toml"""
     try:
@@ -1260,6 +1257,10 @@ def main():
     # Display today's date prominently
     st.markdown(f"<div style='text-align: center; font-size: 1.1rem; color: #00ffff; margin-bottom: 1rem; background: rgba(0, 255, 255, 0.1); padding: 0.5rem; border-radius: 8px;'>📅 Today: {today.strftime('%A, %B %d, %Y')}</div>", unsafe_allow_html=True)
 
+    # Load data with freshness indicator
+    data_load_time = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%H:%M:%S')
+    st.markdown(f"<div style='text-align: center; font-size: 0.9rem; color: #cccccc; margin-bottom: 1rem;'>📊 Data loaded at: {data_load_time} (Auto-refreshes every 30 min)</div>", unsafe_allow_html=True)
+
     # Load data
     with st.spinner('🔄 CONNECTING TO DATA SOURCE...'):
         df = load_data()
@@ -1287,6 +1288,12 @@ def main():
             st.markdown("---")
             st.markdown("### 📊 DATA SOURCE")
             st.success("🔐 SECURELY CONNECTED VIA SECRETS.TOML")
+            
+            # Add manual refresh button
+            if st.button("🔄 REFRESH DATA", use_container_width=True):
+                st.rerun()
+            
+            st.markdown("#### 🕒 Auto-refresh: Every 30 minutes")
             credentials_dict, sheet_url = get_google_sheets_config()
 
         # Apply filters
